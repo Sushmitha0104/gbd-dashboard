@@ -12,7 +12,7 @@ if uploaded_file:
 
     # Send file to FastAPI
     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}  # ✅ Fix here
-    response = requests.post("http://127.0.0.1:8000/upload/", files=files)
+    response = requests.post("https://gbd-dashboard.onrender.com/upload/", files=files)
 
     if response.status_code == 200:
         result = response.json()
