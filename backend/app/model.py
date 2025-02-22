@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from scipy.interpolate import interp1d
+from scipy.stats import linregress
 
 # Step 1: Reading Excel files and defining sheets
 
@@ -260,13 +262,251 @@ def calculate_gbd_values(sg_mix_data, packing_densities):
     return gbd_df
 
 
-def calculate_gbd_from_excel(file, required_sheets, column_to_drop, proportions, packing_densities):
+# def calculate_gbd_from_excel(file, required_sheets, column_to_drop, proportions, packing_densities):
+#     """
+#     Wrapper function to calculate GBD values from Excel file.
+#     It calls all the other functions in the correct order.
+#     """
+#     # Step 1: Read the Excel file and get the sheets
+#     sheets = read_excel_file(file, required_sheets)
+
+#     # Step 2: Clean the data
+#     cleaned_sheets = clean_data(sheets, column_to_drop)
+
+#     # Step 3: Standardize column names and convert date columns
+#     standardized_sheets = standardize_column_names_and_convert_dates(cleaned_sheets)
+
+#     dates = standardized_sheets[required_sheets[0]]["Received Date"].dropna().unique()
+
+#     # Step 4: Match dates across sheets
+#     matching_dates = match_dates_across_sheets(standardized_sheets, required_sheets, dates, dates)
+
+
+#     # Step 5: Extract sample data for matching dates
+#     sample_data = extract_sample_data(standardized_sheets, matching_dates, dates)
+
+#     # Step 6: Convert data to numeric and calculate averages
+#     average_data = convert_to_numeric_and_calculate_average(sample_data)
+
+#     # Step 7: Calculate volume using weight proportions
+#     volume_data = calculate_volume(average_data, proportions)
+
+#     # Step 8: Sum volumes to get total volume for each date
+#     volume_sum = sum_volumes(volume_data)
+
+#     # Step 9: Calculate SG mix for each date
+#     sg_mix_data = calculate_sg_mix(volume_sum)
+
+#     # Step 10: Calculate GBD values and return as DataFrame
+#     gbd_df = calculate_gbd_values(sg_mix_data, packing_densities)
+
+#     return gbd_df
+
+
+
+# Step 11: Calculate reverse cumulative sum
+def drop_last_3_and_reverse_cumsum(average_data):
     """
-    Wrapper function to calculate GBD values from Excel file.
+    Drops the last 3 items in average data and calculates reverse cumulative sum of remaining items.
+    """
+    weights = {}
+    cum_sum = {}
+
+    for date, sheet_data in average_data.items():
+        weights[date] = {}
+        cum_sum[date] = {}
+
+        for sheet, df in sheet_data.items():
+            if df is None:
+                weights[date][sheet] = None
+                cum_sum[date][sheet] = None
+                continue
+
+            # Drop the last 3 rows (Total, LBD, SG)
+            df = df.iloc[:-3]
+            weights[date][sheet] = df
+
+            # Calculate reverse cumulative sum
+            df = df.to_frame()  # Convert Series to DataFrame
+            mesh_sizes = df.index.values
+            weight_values = df.iloc[:, 0].values
+
+            reverse_cumsum_weights = np.cumsum(weight_values[::-1])[::-1]
+            reverse_cumsum_weights = reverse_cumsum_weights[1:]
+
+            mesh_sizes = mesh_sizes[:-1]  # Sync mesh sizes with cumulative sum values
+
+            df_result = pd.DataFrame({
+                'Mesh Size': mesh_sizes,
+                'Cumulative Sum': reverse_cumsum_weights
+            })
+
+            cum_sum[date][sheet] = df_result
+
+    return weights, cum_sum
+
+# Step 12: Calculate cpft
+def calculate_cpft(cum_sum, multipliers):
+    """
+    Calculates CPFT values for each date and sheet using provided multipliers.
+    """
+    cpft = {}
+    for date, sheet_data in cum_sum.items():
+        cpft[date] = {}
+        for sheet, df in sheet_data.items():
+            if df is not None:
+                multiplier = multipliers.get(sheet) 
+                if multiplier:
+                    df['cpft'] = df['Cumulative Sum'] * multiplier
+                    cpft[date][sheet] = df
+    return cpft
+
+# Step -13: Calculate pct_cpft values
+def calculate_pct_cpft(cum_sum, sheet_constants):
+    """
+    Calculates Percentage CPFT values for each date and sheet using sheet constants.
+    """
+    pct_cpft = {}
+    for date, sheet_data in cum_sum.items():
+        pct_cpft[date] = {}
+        for sheet, df in sheet_data.items():
+            if df is not None:
+                constant = sheet_constants.get(sheet, 0) 
+                df['pct_cpft'] = df['cpft'] + constant
+                df['Sheet'] = sheet
+                df_result = df[['Sheet', 'Mesh Size', 'cpft', 'pct_cpft']]
+                pct_cpft[date][sheet] = df_result
+    return pct_cpft
+
+# step -14: Merge into single df
+def merge_pct_cpft_into_df(mesh_size_to_particle_size, pct_cpft):
+    """
+    Merges pct_cpft values into a single DataFrame for each date.
+    """
+    final_df = {}
+    for date, sheet_data in pct_cpft.items():
+        final_df[date] = pd.concat(sheet_data.values(), ignore_index=True)
+        final_df[date]['Particle Size'] = final_df[date]['Mesh Size'].map(mesh_size_to_particle_size)
+
+    return final_df
+
+# Step-15 : Interpolation
+def calculate_interpolated_values(final_df, rows_to_interpolate=[5, 15, 18, 19]):
+    """
+    Calculates interpolated pct_cpft values for specified rows using linear interpolation.
+    """
+    for date, df in final_df.items():
+        
+
+        # Initialize with original values
+        df['pct_cpft_interpolated'] = df['pct_cpft']  
+
+        # Remove rows to be interpolated and store the valid data
+        valid_rows = df.drop(rows_to_interpolate)
+
+        for i in rows_to_interpolate:
+            if i >= len(df):  # Ensure index is within bounds
+                continue  
+
+            current_particle_size = df.loc[i, 'Particle Size']
+
+            # Select nearest smaller and larger values from valid_rows
+            small_rows = valid_rows[valid_rows['Particle Size'] < current_particle_size]
+            large_rows = valid_rows[valid_rows['Particle Size'] > current_particle_size]
+
+            if not small_rows.empty and not large_rows.empty:
+                # Find nearest smaller and larger indices
+                nearest_small_index = small_rows['Particle Size'].sub(current_particle_size).abs().idxmin()
+                nearest_large_index = large_rows['Particle Size'].sub(current_particle_size).abs().idxmin()
+
+                # Extract data for interpolation
+                x_vals = [valid_rows.loc[nearest_small_index, 'Particle Size'], 
+                          valid_rows.loc[nearest_large_index, 'Particle Size']]
+                y_vals = [valid_rows.loc[nearest_small_index, 'pct_cpft'], 
+                          valid_rows.loc[nearest_large_index, 'pct_cpft']]
+
+                
+                # Create interpolation function
+                interp_func = interp1d(x_vals, y_vals, kind='linear', fill_value='extrapolate')
+
+                # Get interpolated value
+                df.at[i, 'pct_cpft_interpolated'] = np.round(interp_func(current_particle_size), 3)
+
+        
+
+    return final_df
+
+#  Step-16: Dropping duplicate rows
+def drop_and_reset_indices(final_df, rows_to_drop=[9, 13, 14, 17]):
+    """
+    Drops specified rows and resets index for each date's DataFrame in final_df.
+    """
+    for date, df in final_df.items():
+        df = df.drop(rows_to_drop, axis=0)
+        final_df[date] = df.reset_index(drop=True)
+    
+    return final_df
+
+# Step-17: Normalize particle size
+def normalize_particle_size(final_df):
+    """
+    Normalizes the Particle Size by dividing by the maximum Particle Size for each date.
+    """
+    for date, df in final_df.items():
+      
+        
+        d_max = df["Particle Size"].max()
+        df['Normalized_D'] = df['Particle Size'] / d_max
+      
+    
+    return final_df
+
+# Step-18: q_value prediction
+
+def q_value_prediction(final_df):
+    """
+    Reads the DataFrame after normalization, calculates logarithmic values,
+    performs q-value prediction using linear regression, and returns a DataFrame
+    containing logarithm values and q-values.
+    """
+    # Initialize a list to store q-values and logarithmic data
+    log_q_values_data = []
+
+    # Loop through all dates in the normalized DataFrame
+    for date, df in final_df.items():
+        
+        # Ensure required columns exist
+        if "Normalized_D" not in df.columns or "pct_cpft_interpolated" not in df.columns:
+            print(f"Skipping {date} as required columns are missing.")
+            continue
+
+        # Apply logarithm
+        df["Log_D/Dmax"] = np.log(df["Normalized_D"])
+        df["Log_pct_cpft"] = np.log(df["pct_cpft_interpolated"])
+
+        # Perform linear regression
+        slope, intercept, r_value, p_value, std_err = linregress(df["Log_D/Dmax"], df["Log_pct_cpft"])
+
+        # Store logarithmic values and q-value
+        log_q_values_data.append({
+            "Date": date,
+            "q-value": round(slope, 4)  # Storing q-value (slope)
+        })
+
+    # Convert list of dictionaries into a DataFrame
+    q_values_df = pd.DataFrame(log_q_values_data)
+    return q_values_df
+
+def calculate_gbd_and_q_values(file_path, required_sheets, column_to_drop, proportions, packing_densities, sheet_constants, mesh_size_to_particle_size):
+    """
+    Wrapper function to calculate both GBD values and q-values from Excel file.
     It calls all the other functions in the correct order.
     """
+
+    # ========== GBD Calculation Steps ==========
+    
     # Step 1: Read the Excel file and get the sheets
-    sheets = read_excel_file(file, required_sheets)
+    sheets = read_excel_file(file_path, required_sheets)
 
     # Step 2: Clean the data
     cleaned_sheets = clean_data(sheets, column_to_drop)
@@ -279,15 +519,14 @@ def calculate_gbd_from_excel(file, required_sheets, column_to_drop, proportions,
     # Step 4: Match dates across sheets
     matching_dates = match_dates_across_sheets(standardized_sheets, required_sheets, dates, dates)
 
-
     # Step 5: Extract sample data for matching dates
     sample_data = extract_sample_data(standardized_sheets, matching_dates, dates)
 
     # Step 6: Convert data to numeric and calculate averages
-    average_data = convert_to_numeric_and_calculate_average(sample_data)
+    averages = convert_to_numeric_and_calculate_average(sample_data)
 
     # Step 7: Calculate volume using weight proportions
-    volume_data = calculate_volume(average_data, proportions)
+    volume_data = calculate_volume(averages, proportions)
 
     # Step 8: Sum volumes to get total volume for each date
     volume_sum = sum_volumes(volume_data)
@@ -295,11 +534,41 @@ def calculate_gbd_from_excel(file, required_sheets, column_to_drop, proportions,
     # Step 9: Calculate SG mix for each date
     sg_mix_data = calculate_sg_mix(volume_sum)
 
-    # Step 10: Calculate GBD values and return as DataFrame
+    # Step 10: Calculate GBD values
     gbd_df = calculate_gbd_values(sg_mix_data, packing_densities)
 
-    return gbd_df
+    # ========== q-Value Calculation Steps ==========
+    
+    # Step 11: Drop last 3 rows and calculate reverse cumulative sum
+    weights, cum_sum = drop_last_3_and_reverse_cumsum(averages)
 
+    # Step 12: Calculate CPFT
+    cpft = calculate_cpft(cum_sum, proportions)
+
+    # Step 13: Calculate Percentage CPFT
+    pct_cpft = calculate_pct_cpft(cum_sum, sheet_constants)
+
+    # Step 14: Merge pct_cpft into DataFrame
+    final_df = merge_pct_cpft_into_df(mesh_size_to_particle_size, pct_cpft)
+
+    # Step 15: Calculate interpolated values
+    final_df = calculate_interpolated_values(final_df)
+
+    # Step 16: Drop unnecessary columns and reset indices
+    final_df = drop_and_reset_indices(final_df)
+
+    # Step 17: Normalize Particle Size
+    final_df = normalize_particle_size(final_df)
+
+    # Step 18: Calculate q-values
+    q_values_df = q_value_prediction(final_df)
+
+    gbd_df["Date"] = pd.to_datetime(gbd_df["Date"])
+    q_values_df["Date"] = pd.to_datetime(q_values_df["Date"])
+    combined_df = pd.merge(gbd_df, q_values_df, on="Date", how="inner")
+
+    # Return both DataFrames
+    return combined_df
 
 
 
