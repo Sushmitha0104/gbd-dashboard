@@ -501,12 +501,10 @@ def predict_q_values(mod_q):
         # Store results as a dictionary
         optimized_q_list.append({
             'Date': date,
-            'q_85': q_85,
-            'q_82': q_82
+            'q_85': np.round(q_85, 4) ,
+            'q_82': np.round(q_82, 4)
         })
         
-        
-    
     # Convert the list of dictionaries into a DataFrame
     optimized_q_df = pd.DataFrame(optimized_q_list)
     
@@ -515,6 +513,22 @@ def predict_q_values(mod_q):
     
     return optimized_q_df
 
+def double_modified_q_values(mod_q):
+    slopes = []
+
+    for date, df in mod_q.items():
+        D_min = df["Particle Size (μm)"].min()
+        D_max = df["Particle Size (μm)"].max()
+
+        df_new = df[df["Particle Size (μm)"] > D_min].copy()
+        df_new["x_value"] = np.log(df_new["Particle Size (μm)"] - D_min) - np.log(D_max - D_min)
+        df_new["y_value"] = np.log(df_new["pct_85_poros_CPFT"])
+
+        regression_result = linregress(df_new["x_value"], df_new["y_value"])
+
+        slopes.append({"Date": date, "Double_modified_q": np.round(regression_result.slope, 4)})
+
+    return pd.DataFrame(slopes)
 
 def calculate_all_values(file_path, required_sheets, column_to_drop, proportions, packing_densities, sheet_constants, mesh_size_to_particle_size):
     # Step 1: Read and clean data
@@ -563,16 +577,20 @@ def calculate_all_values(file_path, required_sheets, column_to_drop, proportions
             df[f"pct_{int(density * 100)}_poros_CPFT"] = df["pct_CPFT"] * density
 
     optimized_q_values_df = predict_q_values(mod_q)
+
+    double_modified_df = double_modified_q_values(mod_q)
     
-  # Convert Date columns to datetime objects without timestamps
+    # Convert Date columns to datetime objects without timestamps
     gbd_df['Date'] = pd.to_datetime(gbd_df['Date']).dt.date
     q_values_df['Date'] = pd.to_datetime(q_values_df['Date']).dt.date
     optimized_q_values_df['Date'] = pd.to_datetime(optimized_q_values_df['Date']).dt.date
+    double_modified_df['Date'] = pd.to_datetime(double_modified_df['Date']).dt.date
 
     # Step 7: Combine all results into a single DataFrame using pd.concat
     combined_df = pd.concat([gbd_df.set_index('Date'), 
                          q_values_df.set_index('Date'), 
-                         optimized_q_values_df.set_index('Date')], 
+                         optimized_q_values_df.set_index('Date'),
+                         double_modified_df.set_index('Date')], 
                         axis=1).reset_index()
     
     return combined_df
