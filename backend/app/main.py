@@ -4,7 +4,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.stats import linregress
 from io import BytesIO
-from app.model import calculate_gbd_and_q_values  # ✅ Ensure correct import
+from app.model import calculate_all_values  # ✅ Ensure correct import
 
 app = FastAPI()
 
@@ -36,7 +36,7 @@ async def process_file(file: UploadFile = File(...)):
         file_obj.seek(0)  # Reset file pointer before reading
 
         # ✅ Ensure required_sheets is passed correctly
-        combined_df = calculate_gbd_and_q_values(file_obj, required_sheets, column_to_drop, proportions, packing_densities, sheet_constants, mesh_size_to_particle_size)
+        combined_df = calculate_all_values(file_obj, required_sheets, column_to_drop, proportions, packing_densities, sheet_constants, mesh_size_to_particle_size)
 
         # ✅ Check if the DataFrame is empty
         if combined_df.empty:

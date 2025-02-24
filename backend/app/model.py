@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.stats import linregress
+from scipy.optimize import curve_fit, minimize_scalar, differential_evolution
 
 # Step 1: Reading Excel files and defining sheets
 
@@ -261,49 +262,6 @@ def calculate_gbd_values(sg_mix_data, packing_densities):
     # print(gbd_df)
     return gbd_df
 
-
-# def calculate_gbd_from_excel(file, required_sheets, column_to_drop, proportions, packing_densities):
-#     """
-#     Wrapper function to calculate GBD values from Excel file.
-#     It calls all the other functions in the correct order.
-#     """
-#     # Step 1: Read the Excel file and get the sheets
-#     sheets = read_excel_file(file, required_sheets)
-
-#     # Step 2: Clean the data
-#     cleaned_sheets = clean_data(sheets, column_to_drop)
-
-#     # Step 3: Standardize column names and convert date columns
-#     standardized_sheets = standardize_column_names_and_convert_dates(cleaned_sheets)
-
-#     dates = standardized_sheets[required_sheets[0]]["Received Date"].dropna().unique()
-
-#     # Step 4: Match dates across sheets
-#     matching_dates = match_dates_across_sheets(standardized_sheets, required_sheets, dates, dates)
-
-
-#     # Step 5: Extract sample data for matching dates
-#     sample_data = extract_sample_data(standardized_sheets, matching_dates, dates)
-
-#     # Step 6: Convert data to numeric and calculate averages
-#     average_data = convert_to_numeric_and_calculate_average(sample_data)
-
-#     # Step 7: Calculate volume using weight proportions
-#     volume_data = calculate_volume(average_data, proportions)
-
-#     # Step 8: Sum volumes to get total volume for each date
-#     volume_sum = sum_volumes(volume_data)
-
-#     # Step 9: Calculate SG mix for each date
-#     sg_mix_data = calculate_sg_mix(volume_sum)
-
-#     # Step 10: Calculate GBD values and return as DataFrame
-#     gbd_df = calculate_gbd_values(sg_mix_data, packing_densities)
-
-#     return gbd_df
-
-
-
 # Step 11: Calculate reverse cumulative sum
 def drop_last_3_and_reverse_cumsum(average_data):
     """
@@ -497,79 +455,124 @@ def q_value_prediction(final_df):
     q_values_df = pd.DataFrame(log_q_values_data)
     return q_values_df
 
-def calculate_gbd_and_q_values(file_path, required_sheets, column_to_drop, proportions, packing_densities, sheet_constants, mesh_size_to_particle_size):
-    """
-    Wrapper function to calculate both GBD values and q-values from Excel file.
-    It calls all the other functions in the correct order.
-    """
 
-    # ========== GBD Calculation Steps ==========
+
+# Corrected Modified Andreason Equation
+def modified_andreason_eq(q, D, D_min, D_max):
+    return ((D ** q - D_min ** q) / (D_max ** q - D_min ** q)) * 100
+
+# Objective Function: Squared Differences for Better Penalization
+def objective_diff(q, particle_sizes, target_cpft):
+    calculated_cpft = modified_andreason_eq(q, particle_sizes, particle_sizes.min(), particle_sizes.max())
+    return np.sum((calculated_cpft - target_cpft) ** 2)  # Squared differences
+
+# Differential Evolution Optimization
+def optimize_q_de(particle_sizes, cpft_values):
+    result = differential_evolution(
+        objective_diff,
+        bounds=[(0.20, 0.60)],  # Wider bounds for more flexibility
+        args=(particle_sizes, cpft_values),
+        strategy='best1bin',
+        maxiter=2000,  # Increased iterations for better convergence
+        tol=1e-10  # Tighter tolerance for more precision
+    )
+    return result.x[0]
+
+# Function to Predict q-values for all dates
+def predict_q_values(mod_q):
+    import pandas as pd  # Make sure pandas is imported
+
+    optimized_q_list = []  # Collect results as a list of dictionaries
+
+    for date, df in mod_q.items():
+       
+
+        # Extract relevant data
+        particle_sizes = df['Particle Size (μm)'].values
+        cpft_85 = df['pct_85_poros_CPFT'].values
+        cpft_82 = df['pct_82_poros_CPFT'].values
+        
+        # Optimize for 85% packing density
+        q_85 = optimize_q_de(particle_sizes, cpft_85)
+        
+        # Optimize for 82% packing density
+        q_82 = optimize_q_de(particle_sizes, cpft_82)
+        
+        # Store results as a dictionary
+        optimized_q_list.append({
+            'Date': date,
+            'q_85': q_85,
+            'q_82': q_82
+        })
+        
+        
     
-    # Step 1: Read the Excel file and get the sheets
+    # Convert the list of dictionaries into a DataFrame
+    optimized_q_df = pd.DataFrame(optimized_q_list)
+    
+    # Sort the DataFrame by date for better visualization
+    optimized_q_df = optimized_q_df.sort_values(by='Date').reset_index(drop=True)
+    
+    return optimized_q_df
+
+
+def calculate_all_values(file_path, required_sheets, column_to_drop, proportions, packing_densities, sheet_constants, mesh_size_to_particle_size):
+    # Step 1: Read and clean data
     sheets = read_excel_file(file_path, required_sheets)
-
-    # Step 2: Clean the data
     cleaned_sheets = clean_data(sheets, column_to_drop)
-
-    # Step 3: Standardize column names and convert date columns
     standardized_sheets = standardize_column_names_and_convert_dates(cleaned_sheets)
-
-    dates = standardized_sheets[required_sheets[0]]["Received Date"].dropna().unique()
-
-    # Step 4: Match dates across sheets
-    matching_dates = match_dates_across_sheets(standardized_sheets, required_sheets, dates, dates)
-
-    # Step 5: Extract sample data for matching dates
-    sample_data = extract_sample_data(standardized_sheets, matching_dates, dates)
-
-    # Step 6: Convert data to numeric and calculate averages
-    averages = convert_to_numeric_and_calculate_average(sample_data)
-
-    # Step 7: Calculate volume using weight proportions
-    volume_data = calculate_volume(averages, proportions)
-
-    # Step 8: Sum volumes to get total volume for each date
-    volume_sum = sum_volumes(volume_data)
-
-    # Step 9: Calculate SG mix for each date
-    sg_mix_data = calculate_sg_mix(volume_sum)
-
-    # Step 10: Calculate GBD values
-    gbd_df = calculate_gbd_values(sg_mix_data, packing_densities)
-
-    # ========== q-Value Calculation Steps ==========
     
-    # Step 11: Drop last 3 rows and calculate reverse cumulative sum
+    # Step 2: Extract Dates and Match Dates
+    dates = standardized_sheets[required_sheets[0]]["Received Date"].dropna().unique()
+    matched_dates = match_dates_across_sheets(standardized_sheets, required_sheets, dates, dates)
+    
+    # Step 3: Extract Sample Data and Calculate Averages
+    sample_data = extract_sample_data(standardized_sheets, matched_dates, dates)
+    averages = convert_to_numeric_and_calculate_average(sample_data)
+    
+    # Step 4: Calculate GBD Values
+    volume_data = calculate_volume(averages, proportions)
+    total_volume = sum_volumes(volume_data)
+    sg_mix_data = calculate_sg_mix(total_volume)
+    gbd_df = calculate_gbd_values(sg_mix_data, packing_densities)
+    
+    # Step 5: Calculate q-values
     weights, cum_sum = drop_last_3_and_reverse_cumsum(averages)
-
-    # Step 12: Calculate CPFT
     cpft = calculate_cpft(cum_sum, proportions)
-
-    # Step 13: Calculate Percentage CPFT
     pct_cpft = calculate_pct_cpft(cum_sum, sheet_constants)
-
-    # Step 14: Merge pct_cpft into DataFrame
     final_df = merge_pct_cpft_into_df(mesh_size_to_particle_size, pct_cpft)
-
-    # Step 15: Calculate interpolated values
     final_df = calculate_interpolated_values(final_df)
-
-    # Step 16: Drop unnecessary columns and reset indices
     final_df = drop_and_reset_indices(final_df)
-
-    # Step 17: Normalize Particle Size
     final_df = normalize_particle_size(final_df)
-
-    # Step 18: Calculate q-values
     q_values_df = q_value_prediction(final_df)
+    
+    # Step 6: Calculate Optimized q-values
+    mod_q = {}
+    for date, df in final_df.items():
+        mod_q[pd.to_datetime(date).date()] = df[["Sheet", "Mesh Size", "pct_cpft_interpolated", "Particle Size"]].rename(
+            columns={
+                "Sheet": "Sheet",
+                "Mesh Size": "Mesh Size",
+                "pct_cpft_interpolated": "pct_CPFT",
+                "Particle Size": "Particle Size (μm)"
+            }
+        )
 
-    gbd_df["Date"] = pd.to_datetime(gbd_df["Date"])
-    q_values_df["Date"] = pd.to_datetime(q_values_df["Date"])
-    combined_df = pd.merge(gbd_df, q_values_df, on="Date", how="inner")
+    for date, df in mod_q.items():
+        for density in packing_densities:
+            df[f"pct_{int(density * 100)}_poros_CPFT"] = df["pct_CPFT"] * density
 
-    # Return both DataFrames
+    optimized_q_values_df = predict_q_values(mod_q)
+    
+  # Convert Date columns to datetime objects without timestamps
+    gbd_df['Date'] = pd.to_datetime(gbd_df['Date']).dt.date
+    q_values_df['Date'] = pd.to_datetime(q_values_df['Date']).dt.date
+    optimized_q_values_df['Date'] = pd.to_datetime(optimized_q_values_df['Date']).dt.date
+
+    # Step 7: Combine all results into a single DataFrame using pd.concat
+    combined_df = pd.concat([gbd_df.set_index('Date'), 
+                         q_values_df.set_index('Date'), 
+                         optimized_q_values_df.set_index('Date')], 
+                        axis=1).reset_index()
+    
     return combined_df
-
-
-
-
