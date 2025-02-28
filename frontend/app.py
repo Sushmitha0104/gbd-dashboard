@@ -231,28 +231,30 @@ if uploaded_file:
                                             st.markdown(f"#### ✅ Double Modified q-value for {q_data['Date']}: **`{q_data['Double_modified_q']:.4f}`**", unsafe_allow_html=True)
 
                                     # ✅ Display Intermediate Table
-                                    intermediate_table = result.get("intermediate_table", [])
-                                    if intermediate_table:
-                                        st.write("### 📊 **Processed Data Table for Regression**")
-                                        df_intermediate = pd.DataFrame(intermediate_table)
-                                        st.dataframe(df_intermediate)  # Show the table in Streamlit
+                                    with st.expander("📊 Show Processed Data Table & Regression Graph", expanded=False):
+                                        intermediate_table = result.get("intermediate_table", [])
+                                        
+                                        if intermediate_table:
+                                            st.write("### 📊 **Processed Data Table for Regression**")
+                                            df_intermediate = pd.DataFrame(intermediate_table)
+                                            st.dataframe(df_intermediate)  # Show the table in Streamlit
 
-                                        # ✅ Plot Regression Graph
-                                        st.write("### 📈 **Regression Graph for Double Modified q-Value**")
-                                        plt.figure(figsize=(6, 4))
-                                        plt.scatter(df_intermediate["Log_D/Dmax"], df_intermediate["Log_pct_cpft"], label="Data Points", color="blue")
+                                            # ✅ Plot Regression Graph
+                                            st.write("### 📈 **Regression Graph for Double Modified q-Value**")
+                                            plt.figure(figsize=(6, 4))
+                                            plt.scatter(df_intermediate["Log_D/Dmax"], df_intermediate["Log_pct_cpft"], label="Data Points", color="blue")
 
-                                        # ✅ Perform regression and plot line
-                                        slope, intercept = np.polyfit(df_intermediate["Log_D/Dmax"], df_intermediate["Log_pct_cpft"], 1)
-                                        reg_line = slope * df_intermediate["Log_D/Dmax"] + intercept
-                                        plt.plot(df_intermediate["Log_D/Dmax"], reg_line, label=f"Regression Line (q = {slope:.4f})", color="red")
+                                            # ✅ Perform regression and plot line
+                                            slope, intercept = np.polyfit(df_intermediate["Log_D/Dmax"], df_intermediate["Log_pct_cpft"], 1)
+                                            reg_line = slope * df_intermediate["Log_D/Dmax"] + intercept
+                                            plt.plot(df_intermediate["Log_D/Dmax"], reg_line, label=f"Regression Line (q = {slope:.4f})", color="red")
 
-                                        plt.xlabel("ln(D - D_min) - ln(D_max - D_min)")
-                                        plt.ylabel("ln(% CPFT)")
-                                        plt.title("Double Modified q-Value Regression")
-                                        plt.legend()
-                                        plt.grid()
-                                        st.pyplot(plt)  # Show the plot in Streamlit
+                                            plt.xlabel("ln(D - D_min) - ln(D_max - D_min)")
+                                            plt.ylabel("ln(% CPFT)")
+                                            plt.title("Double Modified q-Value Regression")
+                                            plt.legend()
+                                            plt.grid()
+                                            st.pyplot(plt)  # Show the plot in Streamlit
                                      # ✅ Plot Regression Graph (No Intermediate Table)
                             #         df_regression = pd.DataFrame(result.get("intermediate_table", []))
                             #         if not df_regression.empty and "Log_D/Dmax" in df_regression.columns and "Log_pct_cpft" in df_regression.columns:
