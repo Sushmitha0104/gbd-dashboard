@@ -593,8 +593,8 @@ def prepare_mod_q_values_double_modified(final_df, selected_date):
 
     # ✅ Convert dictionary of DataFrames into a single DataFrame
     df = final_df[selected_date]
-    # if isinstance(df, dict):  
-    #     df = pd.concat(df.values(), ignore_index=True)  # Merge all sheets into one DataFrame
+    if isinstance(df, dict):  
+        df = pd.concat(df.values(), ignore_index=True)  # Merge all sheets into one DataFrame
 
     if df.empty:
         raise ValueError(f"final_df for {selected_date} is empty.")
@@ -621,27 +621,55 @@ def prepare_mod_q_values_double_modified(final_df, selected_date):
 
 
 
-def double_modified_q_values(mod_q):
+def double_modified_q_values(mod_q, selected_date):
     """
     Computes Double Modified Andreasen q-values **only for the selected date**.
     """
-    slopes = []
-    regression_data = []
+    if selected_date not in mod_q:
+        raise ValueError(f"No valid data found for {selected_date} in mod_q.")
 
-    for date, df in mod_q.items():
-        D_min = df["Particle Size (μm)"].min()
-        D_max = df["Particle Size (μm)"].max()
+    df = mod_q[selected_date]
 
-        df_new = df[df["Particle Size (μm)"] > D_min].copy()
-        df_new["x_value"] = np.log(df_new["Particle Size (μm)"] - D_min) - np.log(D_max - D_min)
-        df_new["y_value"] = np.log(df_new["pct_CPFT"])
+    if df.empty:
+        raise ValueError(f"df is empty for {selected_date} in mode_q.")
 
-        regression_result = linregress(df_new["x_value"], df_new["y_value"])
+    D_min = df["Particle Size (μm)"].min()
+    D_max = df["Particle Size (μm)"].max()
 
-        slopes.append({"Date": date, "Double_modified_q": np.round(regression_result.slope, 4)})
+    # ✅ Use interpolated CPFT values instead of applying a packing density
+    df_new = df[df["Particle Size (μm)"] > D_min].copy()
 
-        # Store regression values for plotting
-        df_new["Regression_Line"] = regression_result.slope * df_new["x_value"] + regression_result.intercept
-        regression_data[date] = df_new[["x_value", "y_value", "Regression_Line"]]
+    # **Fix 1️⃣:** Ensure these columns exist before transformation
+    if "pct_cpft_interpolated" not in df_new.columns:
+        raise ValueError(f"Missing required column 'pct_cpft_interpolated' for {selected_date}")
 
-    return pd.DataFrame(slopes), regression_data
+    df_new["Log_D/Dmax"] = np.log(df_new["Particle Size (μm)"] - D_min) - np.log(D_max - D_min)
+    df_new["Log_pct_cpft"] = np.log(df_new["pct_cpft_interpolated"])
+
+    # **Fix 2️⃣:** Check for NaN or Infinite values before regression
+    if df_new[["Log_D/Dmax", "Log_pct_cpft"]].isnull().values.any():
+        raise ValueError(f"NaN values found in Log_D/Dmax or Log_pct_cpft for {selected_date}")
+
+      # ✅ Debugging print statements
+    print(f"✅ Debugging: df_new after transformation for {selected_date}:")
+    print(df_new.head())
+
+    regression_result = linregress(df_new["Log_D/Dmax"], df_new["Log_pct_cpft"])
+
+    # ✅ Store q-value for the selected date
+    double_modified_q_df = pd.DataFrame([{
+        "Date": selected_date,
+        "Double_modified_q": np.round(regression_result.slope, 4)
+    }])
+
+    # ✅ Ensure df_new is not empty before returning
+    if df_new.empty:
+        raise ValueError(f"df_new is empty after processing for {selected_date}")
+
+    # ✅ Store intermediate table for the selected date
+    intermediate_table = df_new[["Log_D/Dmax", "Log_pct_cpft"]]
+
+    print(f"✅ Debugging: Intermediate table generated for {selected_date}:")
+    print(intermediate_table.head())
+
+    return double_modified_q_df, intermediate_table   # ✅ Return both q-value and intermediate table

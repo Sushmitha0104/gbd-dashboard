@@ -296,9 +296,6 @@ async def calculate_q_value_double_modified(selected_date: str = Query(...)):
                 or cached_final_df[selected_date].empty):
             print(f"🚨 Debugging: No valid data found for {selected_date} in cached_final_df.")
             raise HTTPException(status_code=500, detail=f"No valid data for merging on {selected_date}")
-        
-        print(f"🛠️ Debug: final_df[{selected_date}] columns: {cached_final_df[selected_date].columns if isinstance(cached_final_df[selected_date], pd.DataFrame) else 'Not a DataFrame'}")
-        print(f"🛠️ Debug: final_df[{selected_date}] data:\n{cached_final_df[selected_date]}")
 
          # ✅ Fix: Use `prepare_mod_q_values_double_modified()`
         mod_q = prepare_mod_q_values_double_modified(cached_final_df, selected_date)
@@ -308,16 +305,18 @@ async def calculate_q_value_double_modified(selected_date: str = Query(...)):
             raise HTTPException(status_code=500, detail=f"Unable to prepare data for optimization on {selected_date}")
 
 
-        # ✅ Compute Double Modified q-values **and** regression data
-        double_mod_q_df, regression_data = double_modified_q_values(mod_q)
+         # ✅ Compute double modified q-values
+        double_modified_q_df, df_regression = double_modified_q_values(mod_q, selected_date)
+        
+        df_regression_dict = df_regression.to_dict(orient="records") if not df_regression.empty else []
+
+        print(f"🛠️ Debugging: df_regression for {selected_date}:\n{df_regression}")
 
         return {
             "message": f"Double Modified q-value Calculation for {selected_date}",
-            "double_modified_q_values": double_mod_q_df.to_dict(orient="records"),
-            "regression_data": {selected_date: regression_data[selected_date].to_dict(orient="records")}  # ✅ Ensure structured properly
+            "double_modified_q_values": double_modified_q_df.to_dict(orient="records"),
+            "intermediate_table": df_regression_dict  # ✅ Pass the intermediate table for regression
         }
-
-
 
 
     except Exception as e:

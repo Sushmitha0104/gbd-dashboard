@@ -224,38 +224,24 @@ if uploaded_file:
                                     st.write("## 📌 Double Modified q-Value Calculation Results")
 
                                     double_mod_q_values = result.get("double_modified_q_values", [])
-                                    regression_data = result.get("regression_data", [])
                                     if double_mod_q_values:
                                         for q_data in double_mod_q_values:
                                             st.markdown(f"#### ✅ Double Modified q-value for {q_data['Date']}: **`{q_data['Double_modified_q']:.4f}`**", unsafe_allow_html=True)
 
                                      # ✅ Plot Regression Graph (No Intermediate Table)
-                                    
-                                    
-                                    # ✅ Display Regression Data Table
-                                    if regression_data:
-                                        df_regression = pd.DataFrame(regression_data)
-
-                                        if not df_regression.empty:
-                                            st.write("### 📊 **Regression Data for Double Modified q-value**")
-                                            st.dataframe(df_regression)  # ✅ Show regression values in a table
-
-                                            # ✅ Plot Regression Graph
-                                            plt.figure(figsize=(6, 4))
-                                            plt.scatter(df_regression["x_value"], df_regression["y_value"], label="Data Points", color="blue")
-                                            plt.plot(df_regression["x_value"], df_regression["Regression_Line"], label="Regression Line", color="red")
-                                            plt.xlabel("log(D - Dmin) - log(Dmax - Dmin)")
-                                            plt.ylabel("log(% CPFT)")
-                                            plt.title("Double Modified q-Value Regression")
-                                            plt.legend()
-                                            plt.grid()
-                                            st.pyplot(plt)  # ✅ Display the graph in Streamlit
-
-                                        else:
-                                            st.warning("⚠️ No regression data available for the selected date.")
-                                # ✅ Display the graph in Streamlit
-                                else:
-                                    st.error(f"❌ Error calculating {calculation_type}. Backend response: {response.text}")
+                            #         df_regression = pd.DataFrame(result.get("intermediate_table", []))
+                            #         if not df_regression.empty and "Log_D/Dmax" in df_regression.columns and "Log_pct_cpft" in df_regression.columns:
+                            #             with st.expander("📊 Show Processed Data Table & Regression Graph", expanded=False):
+                            #                 st.write("### 📄 **Processed Data Table for Regression**")
+                            #                 st.dataframe(df_regression)
+                                            
+                            #                 # ✅ Show Regression Graph
+                            #                 st.write("### 📈 **Regression Graph**")
+                            #                 plot_q_value_regression(df_regression)
+                            #         else:
+                            #             st.warning("⚠️ No data available for regression graph.")
+                            else:
+                                st.error(f"❌ Error calculating {calculation_type}. Backend response: {response.text}")
 
                         except Exception as e:
                             st.error(f"❌ Exception: {str(e)}")
