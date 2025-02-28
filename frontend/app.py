@@ -57,6 +57,8 @@ st.title("GBD Optimization Dashboard - File Upload")
 
 uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
 
+BASE_URL = "https://gbd-dashboard.onrender.com"
+
 available_dates = None
 selected_date = None
 sample_data = None
@@ -65,7 +67,7 @@ if uploaded_file:
     st.write("File uploaded successfully.")
     
     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-    response = requests.post("http://127.0.0.1:8000/upload/", files=files)
+    response = requests.post(f"{BASE_URL}/upload/", files=files)
     
     if response.status_code == 200:
         result = response.json()
@@ -89,7 +91,7 @@ if uploaded_file:
                     formatted_selected_date = selected_date_dt.strftime("%d-%m-%Y")
 
                     if st.button("🔍 Verify Sample Data"):
-                        sample_response = requests.get("http://127.0.0.1:8000/get_sample_data/", params={"selected_date": formatted_selected_date})
+                        sample_response = requests.get(f"{BASE_URL}/get_sample_data/", params={"selected_date": formatted_selected_date})
 
                         if sample_response.status_code == 200:
                             sample_data = sample_response.json().get("sample_data", {})
@@ -152,17 +154,17 @@ if uploaded_file:
                             if calculation_type == "GBD Values":
                                 if packing_density:
                                     payload["packing_density"] = ",".join(map(str, packing_density))
-                                response = requests.get("http://127.0.0.1:8000/calculate_gbd/", params=payload)
+                                response = requests.get(f"{BASE_URL}/calculate_gbd/", params=payload)
 
                             elif q_type == "q-value using Andreasen Eq.":
-                                response = requests.get("http://127.0.0.1:8000/calculate_q_value/", params={"selected_date": formatted_selected_date})
+                                response = requests.get(f"{BASE_URL}/calculate_q_value/", params={"selected_date": formatted_selected_date})
                             
                             elif q_type == "q-value using Modified Andreasen Eq.":
                                 payload["packing_density"] = ",".join(map(str, packing_density))
-                                response = requests.get("http://127.0.0.1:8000/calculate_q_value_modified_andreason/", params=payload)
+                                response = requests.get(f"{BASE_URL}/calculate_q_value_modified_andreason/", params=payload)
                             
                             elif q_type == "q-value using Double Modified Andreasen Eq.":
-                                response = requests.get("http://127.0.0.1:8000/calculate_q_value_double_modified/", params = {"selected_date": formatted_selected_date})
+                                response = requests.get(f"{BASE_URL}/calculate_q_value_double_modified/", params = {"selected_date": formatted_selected_date})
 
                             if response.status_code == 200:
                                 result = response.json()
