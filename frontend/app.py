@@ -176,7 +176,7 @@ if uploaded_file:
 
                                     st.write("## 📌 GBD Calculation Results")
                                     st.write(f"**🔹 Total Volume of the Mix:** `{total_volume:.4f}`")
-                                    st.write(f"**🔹 Specific Gravity of the Mix:** `{specific_gravity:.4f}`")
+                                    st.write(f"**🔹 Specific Gravity of the Mix:** `{specific_gravity:.4f} g/cc`")
 
                                     st.write("### ✅ **GBD Values**")
                                     for density, gbd in result["gbd_values"].items():
