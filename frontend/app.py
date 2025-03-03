@@ -10,19 +10,19 @@ def plot_q_value_regression(df):
     """
     Plots regression graph for q-value calculation.
     """
-    if "Log_D/Dmax" not in df.columns or "Log_pct_cpft" not in df.columns:
+    if "Log(D/D_max)" not in df.columns or "Log(%_CPFT)" not in df.columns:
         st.warning("⚠️ Required columns for regression are missing.")
         return
 
     plt.figure(figsize=(6, 4))
-    plt.scatter(df["Log_D/Dmax"], df["Log_pct_cpft"], label="Data Points", color="blue")
+    plt.scatter(df["Log(D/D_max)"], df["Log(%_CPFT)"], label="Data Points", color="blue")
 
     # ✅ Perform regression and plot line
-    slope, intercept = np.polyfit(df["Log_D/Dmax"], df["Log_pct_cpft"], 1)
-    reg_line = slope * df["Log_D/Dmax"] + intercept
-    plt.plot(df["Log_D/Dmax"], reg_line, label=f"Regression Line (q = {slope:.4f})", color="red")
+    slope, intercept = np.polyfit(df["Log(D/D_max)"], df["Log(%_CPFT)"], 1)
+    reg_line = slope * df["Log(D/D_max)"] + intercept
+    plt.plot(df["Log(D/D_max)"], reg_line, label=f"Regression Line (q = {slope:.4f})", color="red")
 
-    plt.xlabel("Log(D/Dmax)")
+    plt.xlabel("Log(D/D_max)")
     plt.ylabel("Log(% CPFT)")
     plt.title("q-Value Regression")
     plt.legend()
@@ -57,7 +57,7 @@ st.title("GBD Optimization Dashboard - File Upload")
 
 uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
 
-BASE_URL = "https://gbd-dashboard.onrender.com"
+BASE_URL = ""
 
 available_dates = None
 selected_date = None
@@ -180,7 +180,8 @@ if uploaded_file:
 
                                     st.write("### ✅ **GBD Values**")
                                     for density, gbd in result["gbd_values"].items():
-                                        st.write(f"- **GBD for {density}% Packing Density:** `{gbd:.4f} g/cc`")
+                                        formatted_density = int(float(density) * 100)
+                                        st.write(f"- **GBD for {formatted_density}% Packing Density:** `{gbd:.4f} g/cc`")
 
                                 elif q_type == "q-value using Andreasen Eq.":
                                     st.write("## 📌 q-Value Calculation Results")
@@ -194,8 +195,17 @@ if uploaded_file:
 
                                     # ✅ Collapse the intermediate table and regression plot for cleaner UI
                                     with st.expander("📊 Show Processed Data Table & Regression Graph", expanded=False):
-                                        df_intermediate = pd.DataFrame(result.get("intermediate_table"))
+                                        df_intermediate = pd.DataFrame(result.get("intermediate_table", []))
                                         if not df_intermediate.empty:
+                                            # ✅ Rename columns for readability
+                                            df_intermediate = df_intermediate.drop(columns=["cpft", "pct_cpft"], errors="ignore").rename(columns={
+                                                "Particle Size": "Particle Size (μm)",
+                                                "pct_cpft_interpolated": "%_CPFT (Interpolated)",
+                                                "Normalized_D": "D/D_max",
+                                                "Log_D/Dmax": "Log(D/D_max)",
+                                                "Log_pct_cpft": "Log(%_CPFT)"
+                                            })
+
                                             st.write("### 📄 **Processed Data Table**")
                                             st.dataframe(df_intermediate)
                                         else:
@@ -213,13 +223,43 @@ if uploaded_file:
                                         for q_data in q_values:
                                             for density, q_value in q_data.items():
                                                 if density != "Date":
-                                                    st.markdown(f"#### ✅ q-value for {q_data['Date']} at {density}% Packing Density: **`{q_value:.4f}`**", unsafe_allow_html=True)
-
+                                                    formatted_density = density.replace("q_", "")  # ✅ Remove "q_" prefix only
+                                                    st.markdown(f"#### ✅ q-value for {q_data['Date']} at {formatted_density}% Packing Density: **`{q_value:.4f}`**", unsafe_allow_html=True)
                                     # ✅ Display Intermediate CPFT Error Table
                                     cpft_error_table = result.get("cpft_error_table", [])
                                     if cpft_error_table:
                                         st.write("### 📊 **CPFT Error Table**")
                                         df_cpft_error = pd.DataFrame(cpft_error_table)
+
+                                         # ✅ Rename columns for better readability
+                                        df_cpft_error = df_cpft_error.rename(columns={
+                                            "Sheet": "Sheet Name",
+                                            "Mesh Size": "Mesh Size",
+                                            "Particle Size": "Particle Size (μm)"
+                                        })
+                                        # ✅ Rename columns for readability
+                                        # df_cpft_error = df_cpft_error.rename(columns={
+                                        #     "Sheet": "Sheet Name",
+                                        #     "Mesh Size": "Mesh Size",
+                                        #     "Particle Size (μm)": "Particle Size (μm)",
+                                        # })
+                                        # ✅ Dynamically rename packing density-related columns
+                                        for col in df_cpft_error.columns:
+                                            if "pct_" in col and "_poros_CPFT" in col:
+                                                density = col.split("_")[1]  # Extract density percentage
+                                                df_cpft_error = df_cpft_error.rename(columns={
+                                                    col: f"Actual CPFT ({density}% Packing Density)"
+                                                })
+                                            elif "calculated_CPFT_" in col:
+                                                density = col.split("_")[-1]  # Extract density percentage
+                                                df_cpft_error = df_cpft_error.rename(columns={
+                                                    col: f"Predicted CPFT ({density}% Packing Density)"
+                                                })
+                                            elif "absolute_error_" in col:
+                                                density = col.split("_")[-1]  # Extract density percentage
+                                                df_cpft_error = df_cpft_error.rename(columns={
+                                                    col: f"Absolute Error ({density}% Packing Density)"
+                                                })
                                         st.dataframe(df_cpft_error)
 
                                 elif q_type == "q-value using Double Modified Andreasen Eq.":
@@ -237,20 +277,25 @@ if uploaded_file:
                                         if intermediate_table:
                                             st.write("### 📊 **Processed Data Table for Regression**")
                                             df_intermediate = pd.DataFrame(intermediate_table)
+                                            # ✅ Rename columns for readability
+                                            df_intermediate = df_intermediate.rename(columns={
+                                                "Log_D/Dmax": "Log(D - D_min) - Log(D_max - D_min)",
+                                                "Log_pct_cpft": "Log(%_CPFT)"
+                                            })
                                             st.dataframe(df_intermediate)  # Show the table in Streamlit
 
                                             # ✅ Plot Regression Graph
                                             st.write("### 📈 **Regression Graph for Double Modified q-Value**")
                                             plt.figure(figsize=(6, 4))
-                                            plt.scatter(df_intermediate["Log_D/Dmax"], df_intermediate["Log_pct_cpft"], label="Data Points", color="blue")
+                                            plt.scatter(df_intermediate["Log(D - D_min) - Log(D_max - D_min)"], df_intermediate["Log(%_CPFT)"], label="Data Points", color="blue")
 
                                             # ✅ Perform regression and plot line
-                                            slope, intercept = np.polyfit(df_intermediate["Log_D/Dmax"], df_intermediate["Log_pct_cpft"], 1)
-                                            reg_line = slope * df_intermediate["Log_D/Dmax"] + intercept
-                                            plt.plot(df_intermediate["Log_D/Dmax"], reg_line, label=f"Regression Line (q = {slope:.4f})", color="red")
+                                            slope, intercept = np.polyfit(df_intermediate["Log(D - D_min) - Log(D_max - D_min)"], df_intermediate["Log(%_CPFT)"], 1)
+                                            reg_line = slope * df_intermediate["Log(D - D_min) - Log(D_max - D_min)"] + intercept
+                                            plt.plot(df_intermediate["Log(D - D_min) - Log(D_max - D_min)"], reg_line, label=f"Regression Line (q = {slope:.4f})", color="red")
 
-                                            plt.xlabel("ln(D - D_min) - ln(D_max - D_min)")
-                                            plt.ylabel("ln(% CPFT)")
+                                            plt.xlabel("Log(D - D_min) - Log(D_max - D_min)")
+                                            plt.ylabel("Log(% CPFT)")
                                             plt.title("Double Modified q-Value Regression")
                                             plt.legend()
                                             plt.grid()

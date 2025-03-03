@@ -18,7 +18,14 @@ def read_excel_file(file, required_sheets):
         dict: Dictionary of DataFrames for each required sheet.
     """
     xls = pd.ExcelFile(file)
-    sheets = {sheet: pd.read_excel(xls, sheet_name=sheet) for sheet in required_sheets if sheet in xls.sheet_names}
+    available_sheets = xls.sheet_names
+
+    # Check if all required sheets are present
+    missing_sheets = [sheet for sheet in required_sheets if sheet not in available_sheets]
+    if missing_sheets:
+        raise ValueError(f"Missing required sheets: {', '.join(missing_sheets)}. Please upload a valid file.")
+
+    sheets = {sheet: pd.read_excel(xls, sheet_name=sheet) for sheet in required_sheets}
     return sheets
 
 # Step 2: Cleaning data
@@ -321,7 +328,7 @@ def merge_pct_cpft_into_df(mesh_size_to_particle_size, pct_cpft):
 
 
 # Step-15 : Interpolation
-def calculate_interpolated_values(final_df, rows_to_interpolate=[5, 15, 18, 19]):
+def calculate_interpolated_values(final_df, rows_to_interpolate=[6, 16, 19, 20]):
     """
     Calculates interpolated pct_cpft values for specified rows using linear interpolation.
     """
@@ -566,7 +573,7 @@ def calculate_cpft_error_dict(mod_q, q_values, packing_densities):
 
         # Create DataFrame for this date
         date_df = pd.DataFrame({
-            'Sheet': [date_str] * len(particle_sizes),
+            'Sheet': df["Sheet"].values,  # ✅ Corrected: Use actual sheet names
             'Mesh Size': mesh_size,
             'Particle Size (μm)': particle_sizes,
         })

@@ -37,18 +37,18 @@ async def upload_file(file: UploadFile = File(...)):
         contents = await file.read()
         file_obj = BytesIO(contents)
         file_obj.seek(0)
-        
-        # Store the file in memory
         file_storage["file"] = file_obj
-
-        # Process the file to get available date range
+        
         sheets = read_excel_file(file_obj, required_sheets)
+        if not sheets:
+            raise HTTPException(status_code=400, detail="Invalid file uploaded. Required sheets are missing.")
+        
         cleaned_sheets = clean_data(sheets, column_to_drop)
         standardized_sheets = standardize_column_names_and_convert_dates(cleaned_sheets)
-
         min_date, max_date = get_available_date_range(standardized_sheets, required_sheets)
+        
         return {"message": "File uploaded successfully", "date_range": [str(min_date.date()), str(max_date.date())]}
-    
+     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
@@ -179,11 +179,28 @@ async def calculate_q_value(selected_date: str = Query(...)):
 
         # ✅ Merge into single DataFrame
         final_df = merge_pct_cpft_into_df(mesh_size_to_particle_size, pct_cpft)
+        
+        # ✅ 🔥 Insert the New Sample Here (Before Interpolation)
+        new_sample = pd.DataFrame({
+            'Sheet': ['7-12'],
+            'Mesh Size': ['+1'],
+            'cpft': [100],
+            'pct_cpft': [100],
+            'Particle Size': [3500]  # This column was added during merging
+        })
+
+        # ✅ Insert new sample at the beginning (index 0) for each date
+        for date in final_df:
+            final_df[date] = pd.concat([new_sample, final_df[date]], ignore_index=True)
+
+        
+        
         final_df = calculate_interpolated_values(final_df)
         final_df = drop_and_reset_indices(final_df)
         final_df = normalize_particle_size(final_df)
 
-        # ✅ Store final_df and q-values in cache
+        # final_df = add_sample_for_q_values(final_df)  # ✅ Add new sample to dataframe
+
        
         # ✅ Ensure final_df is correctly formatted before storing
         if isinstance(final_df, dict):
@@ -196,9 +213,18 @@ async def calculate_q_value(selected_date: str = Query(...)):
             cached_final_df[selected_date] = final_df
 
         cached_q_values[selected_date] = q_value_prediction(final_df)  # Store q-values for later use
-        # Store q-values for later use
-        print(f"🛠️ Debug: final_df structure for {selected_date}: {type(final_df)}")
-        print(f"🛠️ Debug: final_df contents:\n{final_df}")
+        # # Store q-values for later use
+        # print(f"🛠️ Debug: final_df structure for {selected_date}: {type(final_df)}")
+        # print(f"🛠️ Debug: final_df contents:\n{final_df}")
+        
+        # df_display = final_df[selected_date].drop(columns=["cpft", "pct_cpft"], errors="ignore").rename(columns={
+        #     "Particle Size": "Particle Size (μm)",
+        #     "pct_cpft_interpolated": "%_CPFT (interpolated)",
+        #     "Normalized_D": "D/D_max",
+        #     "Log_D/Dmax": "Log(D/D_max)",
+        #     "Log_pct_cpft": "Log(%_CPFT)"
+        # })
+
 
         return {
             "message": f"q-value Calculation for {selected_date}",
@@ -261,6 +287,24 @@ async def calculate_q_value_modified_andreason(
 
         # ✅ Now call error calculation after ensuring required columns exist
         cpft_error_dict = calculate_cpft_error_dict(mod_q, optimized_q_values_df.to_dict(orient="records"), packing_densities)
+
+        # ✅ Rename columns for better readability before returning
+        # for date in cpft_error_dict:
+        #     cpft_error_dict[date] = cpft_error_dict[date].rename(columns={
+        #         "Sheet": "Sheet Name",
+        #         "Mesh Size": "Mesh Size",
+        #         "Particle Size (μm)": "Particle Size (μm)"
+        #     })
+            
+        #     for density in packing_densities:
+        #         cpft_error_dict[date].rename(columns={
+        #             f"pct_{int(density * 100)}_poros_CPFT": f"Actual CPFT ({int(density * 100)}% Packing Density)",
+        #             f"calculated_CPFT_{int(density * 100)}": f"Predicted CPFT ({int(density * 100)}% Packing Density)",
+        #             f"absolute_error_{int(density * 100)}": f"Absolute Error ({int(density * 100)}% Packing Density)"
+        #         }, inplace=True)
+
+
+
         return {
             "message": f"q-value Calculation using Modified Andreasen Eq. for {selected_date}",
             "q_values": optimized_q_values_df.to_dict(orient="records"),
