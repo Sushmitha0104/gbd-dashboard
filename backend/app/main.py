@@ -38,6 +38,28 @@ async def upload_file(file: UploadFile = File(...)):
         file_obj = BytesIO(contents)
         file_obj.seek(0)
         file_storage["file"] = file_obj
+
+        # Check if it's an Excel file
+        if file.filename.endswith(".xlsx"):
+            sheets = read_excel_file(file_obj, required_sheets)
+
+            # ✅ Validate that required sheets exist
+            missing_sheets = [sheet for sheet in required_sheets if sheet not in sheets]
+            if missing_sheets:
+                raise HTTPException(status_code=400, detail=f"Missing required sheets: {missing_sheets}")
+
+        elif file.filename.endswith(".csv"):
+            df = pd.read_csv(file_obj)
+
+            # ✅ Validate that required columns exist
+            expected_columns = ["Column1", "Column2", "Column3"]  # Replace with actual required columns
+            missing_columns = [col for col in expected_columns if col not in df.columns]
+
+            if missing_columns:
+                raise HTTPException(status_code=400, detail=f"Missing required columns: {missing_columns}")
+
+        else:
+            raise HTTPException(status_code=400, detail="Invalid file format. Please upload a CSV or Excel file.")
         
         sheets = read_excel_file(file_obj, required_sheets)
         if not sheets:

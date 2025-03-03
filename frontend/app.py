@@ -318,5 +318,11 @@ if uploaded_file:
                         except Exception as e:
                             st.error(f"❌ Exception: {str(e)}")
 
+        else:
+            st.error("❌ Error: Could not retrieve date range. Please check your file.")
+
+    else:
+        st.error(f"❌ Error uploading file: {response.json().get('detail', 'Unknown error')}. \n\n⚠️ Please check your file format and ensure all required sheets/columns are included.")
                             
+                                      
                 
