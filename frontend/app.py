@@ -57,7 +57,7 @@ st.title("GBD Optimization Dashboard - File Upload")
 
 uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
 
-BASE_URL = ""
+BASE_URL = "https://gbd-dashboard.onrender.com/"
 
 available_dates = None
 selected_date = None
