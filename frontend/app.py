@@ -52,12 +52,18 @@ def plot_q_value_regression(df):
 #     plt.grid()
 #     st.pyplot(plt)
 
+st.markdown(
+    """
+    <h1 style='text-align: center;'>CUMI Dashboard</h1>
+    <h2 style='text-align: center; color: grey;'>GBD & q-value Computation</h2>
+    """,
+    unsafe_allow_html=True
+)
 
-st.title("GBD Optimization Dashboard - File Upload")
 
 uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
 
-BASE_URL = "https://gbd-dashboard.onrender.com/"
+BASE_URL = "http://127.0.0.1:8000"
 
 available_dates = None
 selected_date = None
@@ -80,12 +86,13 @@ if uploaded_file:
             formatted_date_range = [min_date.strftime("%d-%m-%Y"), max_date.strftime("%d-%m-%Y")]
             st.write(f"Available date range: **{formatted_date_range[0]} to {formatted_date_range[1]}**")
 
+
             selected_date = st.date_input("Select a date:", value=None, format="DD-MM-YYYY")
 
             if selected_date:
                 selected_date_dt = datetime.combine(selected_date, datetime.min.time())
 
-                if selected_date_dt < min_date:
+                if selected_date_dt < min_date or selected_date_dt > max_date:
                     st.error(f"⚠️ Please select a date from the available range: {formatted_date_range[0]} to {formatted_date_range[1]}")
                 else:
                     formatted_selected_date = selected_date_dt.strftime("%d-%m-%Y")
@@ -116,14 +123,43 @@ if uploaded_file:
                     packing_density = None
 
                     if calculation_type == "GBD Values":
-                        packing_density_input = st.text_input("Enter Packing Density (single value or comma-separated list):")
+                        st.write("### 📊 Edit Mixing Proportions")
+
+                        # Define initial proportions as a DataFrame (for display & editing)
+                        proportions_df = pd.DataFrame({
+                            "Sheet Name": ["7-12", "14-30", "36-70", "80-180", "220F"],
+                            "Proportion": [0.35, 0.20, 0.15, 0.10, 0.20]  # Default values (sum = 1)
+                        })
+
+                        # ✅ Display an editable DataFrame
+                        updated_proportions_df = st.data_editor(
+                            proportions_df,
+                            num_rows="fixed",  # Prevent adding/removing rows
+                            column_config={"Proportion": st.column_config.NumberColumn(format="%.4f")},
+                            hide_index=True
+                        )
+
+                        # ✅ Extract updated proportions
+                        updated_proportions = updated_proportions_df["Proportion"].tolist()
+                        total_proportion = sum(updated_proportions)
+
+                        # ✅ Ensure total proportion is exactly 1 before proceeding
+                        if total_proportion != 1:
+                            st.error(f"⚠️ The sum of all proportions must be exactly 1. Currently: {total_proportion:.4f}")
+                            calculate_button_label = None  # Prevent calculations
+                        else:
+                            porosity_input = st.text_input("Enter Porosity (value should be between 0-1):")
                         
-                        if packing_density_input:
-                            try:
-                                packing_density = [float(x.strip()) for x in packing_density_input.split(",")]
-                                calculate_button_label = f"Calculate {calculation_type} with Packing Density: {packing_density}"
-                            except ValueError:
-                                st.error("❌ Please enter valid numeric values for packing density.")
+                            if porosity_input:
+                                try:
+                                    porosity = float(porosity_input.strip())
+                                    if 0 <= porosity <= 1:
+                                        packing_density = 1 - porosity  # ✅ Convert to Packing Density
+                                        calculate_button_label = f"Calculate {calculation_type} with Porosity: {porosity}"
+                                    else:
+                                        st.error("❌ Please enter a valid Porosity value between 0 and 1.")
+                                except ValueError:
+                                    st.error("❌ Please enter a numeric value for Porosity.")
 
                     elif calculation_type == "q-Values":
                         q_type = st.selectbox(
@@ -132,36 +168,45 @@ if uploaded_file:
                         )
 
                         if q_type == "q-value using Modified Andreasen Eq.":
-                            packing_density_input = st.text_input("Enter Packing Density for Modified Andreasen Eq.:")
-                            
-                            if packing_density_input:
+                            porosity_input = st.text_input("Enter Porosity for Modified Andreasen Eq. (value should be between 0-1):")
+
+                            if porosity_input:
                                 try:
-                                    packing_density = [float(x.strip()) for x in packing_density_input.split(",")]
-                                    calculate_button_label = f"Calculate {q_type} with Packing Density: {packing_density}"
+                                    porosity = float(porosity_input.strip())
+                                    if 0 <= porosity <= 1:
+                                        packing_density = 1 - porosity  # ✅ Convert to Packing Density
+                                        calculate_button_label = f"Calculate {q_type} with Porosity: {porosity}"
+                                    else:
+                                        st.error("❌ Please enter a valid Porosity value between 0 and 1.")
                                 except ValueError:
-                                    st.error("❌ Please enter valid numeric values for packing density.")
+                                    st.error("❌ Please enter a numeric value for Porosity.")
                         else:
                             calculate_button_label = f"Calculate {q_type}"
 
                     # ✅ Button to trigger calculations
                      
                     if calculate_button_label and st.button(calculate_button_label):
-                        st.info(f"🔄 Processing: {calculate_button_label}")
+                        st.info(f"Processing: {calculate_button_label}")
 
                         try:
-                            payload = {"selected_date": formatted_selected_date}
+                            payload = {
+                                "selected_date": formatted_selected_date,
+                                "packing_density": packing_density
+                            }
+
 
                             if calculation_type == "GBD Values":
-                                if packing_density:
-                                    payload["packing_density"] = ",".join(map(str, packing_density))
+                                payload["updated_proportions"] = ",".join(map(str, updated_proportions))  # ✅ Send only for GBD
+                                
                                 response = requests.get(f"{BASE_URL}/calculate_gbd/", params=payload)
 
                             elif q_type == "q-value using Andreasen Eq.":
                                 response = requests.get(f"{BASE_URL}/calculate_q_value/", params={"selected_date": formatted_selected_date})
                             
                             elif q_type == "q-value using Modified Andreasen Eq.":
-                                payload["packing_density"] = ",".join(map(str, packing_density))
+                                payload["packing_density"] = packing_density
                                 response = requests.get(f"{BASE_URL}/calculate_q_value_modified_andreason/", params=payload)
+
                             
                             elif q_type == "q-value using Double Modified Andreasen Eq.":
                                 response = requests.get(f"{BASE_URL}/calculate_q_value_double_modified/", params = {"selected_date": formatted_selected_date})
@@ -174,24 +219,27 @@ if uploaded_file:
                                     specific_gravity = result.get("specific_gravity")
                                     gbd_values = result.get("gbd_values")
 
-                                    st.write("## 📌 GBD Calculation Results")
+                                    st.write("## Results")
                                     st.write(f"**🔹 Total Volume of the Mix:** `{total_volume:.4f}`")
-                                    st.write(f"**🔹 Specific Gravity of the Mix:** `{specific_gravity:.4f} g/cc`")
+                                    st.write(f"**🔹 Specific Gravity of the Mix:** `{specific_gravity:.4f}`")
 
-                                    st.write("### ✅ **GBD Values**")
+                                    st.write("### **GBD Values**")
                                     for density, gbd in result["gbd_values"].items():
                                         formatted_density = int(float(density) * 100)
-                                        st.write(f"- **GBD for {formatted_density}% Packing Density:** `{gbd:.4f} g/cc`")
+                                        porosity_value = 100 - formatted_density  # Convert packing density to porosity
+                                        st.write(f"- **GBD for {porosity_value}% Porosity:** `{gbd:.4f} g/cc`")
+
+                                        # st.write(f"- **GBD for {formatted_density}% Packing Density:** `{gbd:.4f} g/cc`")
 
                                 elif q_type == "q-value using Andreasen Eq.":
-                                    st.write("## 📌 q-Value Calculation Results")
+                                    st.write("## Results")
 
                                     # ✅ Display q-values **first**
                                     q_values = result.get("q_values", [])
                                     if q_values:
                                         
                                         for q_data in q_values:
-                                            st.markdown(f"#### ✅ q-value for {q_data['Date']}: **`{q_data['q-value']:.4f}`**", unsafe_allow_html=True)
+                                            st.markdown(f"####  q-value on {q_data['Date']}: **`{q_data['q-value']:.4f}`**", unsafe_allow_html=True)
 
                                     # ✅ Collapse the intermediate table and regression plot for cleaner UI
                                     with st.expander("📊 Show Processed Data Table & Regression Graph", expanded=False):
@@ -216,7 +264,7 @@ if uploaded_file:
                                         plot_q_value_regression(df_intermediate)
 
                                 elif q_type == "q-value using Modified Andreasen Eq.":
-                                    st.write("## 📌 q-Value Calculation Results")
+                                    st.write("## Results")
 
                                     q_values = result.get("q_values", [])
                                     if q_values:
@@ -224,11 +272,14 @@ if uploaded_file:
                                             for density, q_value in q_data.items():
                                                 if density != "Date":
                                                     formatted_density = density.replace("q_", "")  # ✅ Remove "q_" prefix only
-                                                    st.markdown(f"#### ✅ q-value for {q_data['Date']} at {formatted_density}% Packing Density: **`{q_value:.4f}`**", unsafe_allow_html=True)
+                                                    porosity_value = 100 - int(formatted_density)  # Convert packing density to porosity
+                                                    st.markdown(f"####  q-value on {q_data['Date']} at {porosity_value}% Porosity: **`{q_value:.4f}`**", unsafe_allow_html=True)
+
+                                                    # st.markdown(f"####  q-value on {q_data['Date']} at {formatted_density}% Packing Density: **`{q_value:.4f}`**", unsafe_allow_html=True)
                                     # ✅ Display Intermediate CPFT Error Table
                                     cpft_error_table = result.get("cpft_error_table", [])
                                     if cpft_error_table:
-                                        st.write("### 📊 **CPFT Error Table**")
+                                        st.write("### 📊 **Processed Data Table**")
                                         df_cpft_error = pd.DataFrame(cpft_error_table)
 
                                          # ✅ Rename columns for better readability
@@ -247,31 +298,34 @@ if uploaded_file:
                                         for col in df_cpft_error.columns:
                                             if "pct_" in col and "_poros_CPFT" in col:
                                                 density = col.split("_")[1]  # Extract density percentage
+                                                porosity_value = 100 - int(density)
                                                 df_cpft_error = df_cpft_error.rename(columns={
-                                                    col: f"Actual CPFT ({density}% Packing Density)"
+                                                    col: f"Actual CPFT ({porosity_value}% Porosity)"
                                                 })
                                             elif "calculated_CPFT_" in col:
                                                 density = col.split("_")[-1]  # Extract density percentage
+                                                porosity_value = 100 - int(density)
                                                 df_cpft_error = df_cpft_error.rename(columns={
-                                                    col: f"Predicted CPFT ({density}% Packing Density)"
+                                                    col: f"Predicted CPFT ({porosity_value}% Porosity)"
                                                 })
                                             elif "absolute_error_" in col:
                                                 density = col.split("_")[-1]  # Extract density percentage
+                                                porosity_value = 100 - int(density)
                                                 df_cpft_error = df_cpft_error.rename(columns={
-                                                    col: f"Absolute Error ({density}% Packing Density)"
+                                                    col: f"Absolute Error ({porosity_value}% Porosity)"
                                                 })
                                         st.dataframe(df_cpft_error)
 
                                 elif q_type == "q-value using Double Modified Andreasen Eq.":
-                                    st.write("## 📌 Double Modified q-Value Calculation Results")
+                                    st.write("## Results")
 
                                     double_mod_q_values = result.get("double_modified_q_values", [])
                                     if double_mod_q_values:
                                         for q_data in double_mod_q_values:
-                                            st.markdown(f"#### ✅ Double Modified q-value for {q_data['Date']}: **`{q_data['Double_modified_q']:.4f}`**", unsafe_allow_html=True)
+                                            st.markdown(f"####  Double Modified q-value on {q_data['Date']}: **`{q_data['Double_modified_q']:.4f}`**", unsafe_allow_html=True)
 
                                     # ✅ Display Intermediate Table
-                                    with st.expander("📊 Show Processed Data Table & Regression Graph", expanded=False):
+                                    with st.expander("📊 Show Processed Data Table",expanded=False):
                                         intermediate_table = result.get("intermediate_table", [])
                                         
                                         if intermediate_table:
@@ -317,12 +371,12 @@ if uploaded_file:
 
                         except Exception as e:
                             st.error(f"❌ Exception: {str(e)}")
-
         else:
             st.error("❌ Error: Could not retrieve date range. Please check your file.")
 
     else:
         st.error(f"❌ Error uploading file: {response.json().get('detail', 'Unknown error')}. \n\n⚠️ Please check your file format and ensure all required sheets/columns are included.")
                             
-                                      
+          
+                            
                 

@@ -60,6 +60,7 @@ async def upload_file(file: UploadFile = File(...)):
 
         else:
             raise HTTPException(status_code=400, detail="Invalid file format. Please upload a CSV or Excel file.")
+
         
         sheets = read_excel_file(file_obj, required_sheets)
         if not sheets:
@@ -118,7 +119,9 @@ async def get_sample_data(selected_date: str = Query(..., description="Selected 
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
     
 @app.get("/calculate_gbd/")
-async def calculate_gbd(selected_date: str = Query(...), packing_density: str = Query(...)):
+async def calculate_gbd( selected_date: str = Query(...), 
+    packing_density: str = Query(...),
+    updated_proportions: str = Query(...)):
     """
     Calculate GBD values dynamically for user-entered packing density values.
     """
@@ -139,6 +142,14 @@ async def calculate_gbd(selected_date: str = Query(...), packing_density: str = 
 
         if not sample_data or all(df is None or df.empty for df in sample_data.values()):
             raise HTTPException(status_code=400, detail=f"No sample data found for {selected_date}")
+
+         # ✅ Convert user-input proportions to a dictionary
+        proportions_list = [float(value.strip()) for value in updated_proportions.split(",")]
+        proportions_dict = dict(zip(required_sheets, proportions_list))  # Assign proportions to correct sheets
+
+        # ✅ Ensure proportions sum up to 1
+        if round(sum(proportions_dict.values()), 4) != 1.0:
+            raise HTTPException(status_code=400, detail="Proportions must sum up to 1. Please check input values.")
 
         # Compute intermediate values
         averages = convert_to_numeric_and_calculate_average(sample_data)
@@ -176,6 +187,8 @@ async def calculate_q_value(selected_date: str = Query(...)):
     global cached_final_df, cached_q_values  # Allow modification of global variable
 
     try:
+        default_proportions = {'7-12': 0.35, '14-30': 0.20, '36-70': 0.15, '80-180': 0.10, '220F': 0.20}
+
         if "file" not in file_storage:
             raise HTTPException(status_code=400, detail="No file uploaded. Please upload a file first.")
 
@@ -196,7 +209,7 @@ async def calculate_q_value(selected_date: str = Query(...)):
             raise HTTPException(status_code=400, detail=f"No valid averages computed for {selected_date}")
 
         weights, cum_sum = drop_last_3_and_reverse_cumsum(averages, selected_date)
-        cpft = calculate_cpft(cum_sum, proportions, selected_date)
+        cpft = calculate_cpft(cum_sum, default_proportions, selected_date)
         pct_cpft = calculate_pct_cpft(cpft, sheet_constants, selected_date)
 
         # ✅ Merge into single DataFrame
